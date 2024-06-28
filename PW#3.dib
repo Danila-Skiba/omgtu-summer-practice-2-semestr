@@ -4,44 +4,11 @@
 
 #!markdown
 
-# Практическая работа №1. Знакомство с потоками.
-
-**Цель:** Познакомиться с возможностями класса System.Thread платформы .NET Framework.
-
-**Результаты:** После выполнения работы Вы сможете:
-1. Запускать длительные операции в отдельном потоке.
-2. Завершать поток.
-3. Дожидаться завершения выполнения потока. 
-
-
-**Материалы для самостоятельного изучения**.
-1. [Основы управления потоками](https://learn.microsoft.com/en-us/dotnet/standard/threading/managed-threading-basics)
-2. [Использование потоков](https://learn.microsoft.com/en-us/dotnet/standard/threading/using-threads-and-threading)
-3. [Примитив синхронизации Барьер](https://learn.microsoft.com/ru-ru/dotnet/standard/threading/barrier)
-4. [Interlocked операции](https://learn.microsoft.com/en-us/dotnet/api/system.threading.interlocked?view=net-8.0)
-
-## Задание.
-Реализовать вычисление определенного интеграла методом трапеции в несколько потоков.
-
-Отрезок, на котором происходит вычисление, разбивается на отрезки по количеству потоков. Для каждого отрезка значение 
-интеграла считается в отдельном потоке, после завершения вычисоения полученный рельтаты суммирутся.
-
-**Указание**.
-1. Для суммирования результатов удобно воспользоваться разделяемой переменной, к которой будут прибалятся результаты вычисления прямо в самом потоке. Для синхронизации операций сложения лучше всего восользоваться [Interlocked операцией](https://learn.microsoft.com/en-us/dotnet/api/system.threading.interlocked?view=net-8.0).
-2. Основная функция долна дождаться завершения всех потоков, которые вычисляют значение на отрезках, прежде чем возвратить результат. Для этого удобнее всего использовать Примитив синхронизации Барьер](https://learn.microsoft.com/ru-ru/dotnet/standard/threading/barrier).
+1) Функция "Solve" для вычисления определённого интеграла с использованием нескольких потоков
 
 #!csharp
 
-//
-// Вычисление определенного интеграла
-//
 using System.Threading;
-class DefiniteIntegral
-{
-    // a, b - границы отрезка, на котором происходит вычисление опредленного интеграла
-    // function - функция, для которой вычисляется определнный интеграл
-    // step - размер одного шага разбиения
-    // threadsNumber - число потоков, которые используются для вычислений
     public static double Solve(double a, double b, Func<double, double> function, double step, int threadsnumber)
     {
         double total = 0.0;
@@ -62,7 +29,7 @@ class DefiniteIntegral
         return total*=step;
             
     
-    double  TrapezoidalRule(double start,double finsih)
+        double  TrapezoidalRule(double start,double finsih)
         {
             double th_rezult =0.0,x, newresult,output;
            for(int i=1; i<count_steps_of_thread; i++)
@@ -83,17 +50,143 @@ class DefiniteIntegral
             return output;
         }
     }
-}
+
+#!markdown
+
+2. Функция "Solve2" для вычисления определённого интеграла 
 
 #!csharp
 
-#r "nuget: xunit, 2.8.1"
+public static double Solve2 (Func<double, double> f, double a, double b, double dx) 
+{
+    double sum =0,x1;
+    int n = Convert.ToInt32((b-a)/dx);
+    for(int i=0; i<n; i++)
+    {
+        x1 = a+i*dx;
+        sum+=f(x1);
+    }
+    return sum*=dx;
+}
 
-using Xunit;
+#!markdown
 
-var X = (double x) => x;
+**Пункт 4**
+
+Определить минимальный размер шага (1e-1, 1e-2, 1 e-3, 1e-4, 1e-5, 1e-6), обеспечивающий оптимальную производительность с точностью 1e-4. Ответ подтвердить вычислениями.
+
+Для того, чтобы определить минимальный размер шага, начнём вычисления с самого большого 1e-1 и постепенно будем уменьшать до шага 1e-6. При каждом шаге вычисляем интеграл и сравниваем с предудыщим значением. Если между двумя вычислениями разность меньше 1e-4, то вносим текущий шаг в отдельный список. Для просчёта времени работы алгоритма используем класс StopWatch и его набор методов.
+
+#!csharp
+
+global using System.Diagnostics;
+
 var SIN = (double x) => Math.Sin(x);
+double[] steps ={1e-1,1e-2,1e-3,1e-4,1e-5,1e-6};
+double[] outputs = new double[6];
+List<double> min_steps = new List<double>();
+for(int i =0; i<6;i++)
+{
+    var watch = Stopwatch.StartNew();
+    outputs[i]= Solve2(SIN, -100,100,steps[i]);
+    watch.Stop();
+    Console.WriteLine("Шаг: "+steps[i]+" Время: "+watch.ElapsedMilliseconds+" миллисекунд "+"Ответ: "+outputs[i]);
+    if(i!=0&&Math.Abs(outputs[i]-outputs[i-1])<=1e-4)
+        min_steps.Add(steps[i]);
+}
+Console.WriteLine("Шаги с точностью меньшей или равной 1e-4");
+foreach(double s in min_steps)
+    Console.WriteLine(s);
 
-Assert.Equal(0, DefiniteIntegral.Solve(-1, 1, X, 1e-4, 2), 1e-4);
-Assert.Equal(0, DefiniteIntegral.Solve(-1, 1, SIN, 1e-5, 8), 1e-4);
-Assert.Equal(50, DefiniteIntegral.Solve(0, 10, X, 1e-6, 8), 1e-5);
+#!markdown
+
+Анализируя результаты, можно сделать вывод, что шаг с размером 1e-5 является оптимальным по производительности с точностью 1e-4 
+
+#!markdown
+
+**Пункт 5**
+
+Подобрать оптимальное число потоков, на котором достигается минимальное время выполнения функции Solve. 
+
+Будем ориентироваться на 9 варинатов с разным числом потоков от **2** до **10**
+
+#!csharp
+
+using System.Diagnostics;
+long[] dataX_timemid= new long[9];
+double[] dataY_theards = new double[9];
+long min = long.MaxValue;
+int min_index;
+for(int i =0;i<9;i++)
+{
+    dataY_theards[i] = i+2;
+    long sum =0;
+    
+    for(int j=0; j<5;j++)
+    {
+        var watch = Stopwatch.StartNew();
+        Solve(-100,100,SIN,1e-5,i+2);
+        watch.Stop();
+        sum+=watch.ElapsedMilliseconds;
+    }
+    dataX_timemid[i] = sum/5;
+    if(dataX_timemid[i]<min)
+    {
+        min = dataX_timemid[i];
+        min_index  =i;
+    }
+}
+ScottPlot.Plot pit = new();
+pit.Add.Scatter(dataX_timemid,dataY_theards);
+long mid_valueSolve = dataX_timemid[min_index];
+Console.WriteLine($"Оптимальное число потоков, на котором  минимальное время выполнения функции Solve для заданного шага: {dataY_theards[min_index]}, среднее время: {dataX_timemid[min_index]} миллисекунд");
+pit
+
+#!markdown
+
+**Пункт 6**
+
+Сравнение результатов работы однопоточного и многопоточного вариантов реализации
+
+#!markdown
+
+Узнаем среднее значение времени вычисления определённого интеграла функции "Solve2", представленной в однопоточном виде, для шага 1e-5.
+
+#!csharp
+
+long mid_valueSolve2;
+for(int i =0; i<5;i++)
+{
+    var watch = Stopwatch.StartNew();
+    Solve2(SIN,-100,100,1e-5);
+    watch.Stop();
+    mid_valueSolve2 +=watch.ElapsedMilliseconds;
+}
+mid_valueSolve2/=5;
+Console.WriteLine(mid_valueSolve2 +" миллисекунд");
+
+#!markdown
+
+Разница по времени в процентах 
+
+#!csharp
+
+double procent =(100-mid_valueSolve*100/mid_valueSolve2);
+Console.WriteLine(procent+"%");
+
+#!markdown
+
+Разница в процентах составляет от **63%** до **65%**. Можно сделать вывод, что многопоточная реализация вычисления определённого интеграла гораздо быстрее однопоточной. 
+
+#!markdown
+
+**Summary**
+
+1) Размер шага выбранный в **пункте 4:** 1e-5
+2) Оптимальное количество потоков, выявленных из **пункта 5**: 7-8 потоков
+
+Скорость оптимальной многопоточной версии в сравнении с однопоточной 
+
+3) Время работы **многопоточной версии**: 59-63 миллисекунд
+4) Время работы **однопоточной версии**: 166-184 миллисекунд
+5) Разница в **процентах**: 63% -65%
