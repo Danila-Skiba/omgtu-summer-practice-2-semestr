@@ -1,0 +1,307 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"languageName":"csharp","name":"csharp"}]}}
+
+#!markdown
+
+# Практическая работа №6. Изучение производительности потоко-безопасных очередей.
+
+**Цель:** Определить лучшую потоко-безопасную коллекцию для выполнения интенсивной обработки входящих сообщений.
+
+**Результаты:** После выполнения работы Вы сможете:
+1. Назвать оптимальную коллекцию для обработки большого количества сообщений.
+2. Изучите примтив синхронизации Условная переманная.
+
+
+**Материалы для самостоятельного изучения**.
+1. [Потоко-безопасные коллекции](https://learn.microsoft.com/en-us/dotnet/standard/collections/thread-safe/)
+2. Условные переменные Глава 5 п.5.1. книги Г. Эндрюс Основы многопоточного, параллельного и распределенного программирования
+3. [Одна из реализаций условных переменных на .Net](https://learn.microsoft.com/ru-ru/dotnet/api/system.threading.manualresetevent?view=net-8.0)
+
+## Задание.
+Исслдеовать производительность BlockingCollection и ConcurrentQueue в сравнении с непотокоабезопасной очередью.
+
+Для каждой потоко-безопасной очереди необходимо реализовать 2 потока: один записывает объект в очередь, а другой - читает объект из очереди.
+Для непотокобезопасной очереди реализовать два цикла - записи миллиона объектов в очередь и чтение миллиона объектов из очереди.
+
+Необходимо определить два промежутка времени:
+- время за которое поток или цикл обработает миллион объектов
+- время, необходимое на запись и чтение миллиона объектов из очереди.
+
+Сделать десять замеров по каждой коллекции. Все замеры показать на графике.
+
+Записать в ноутбуке вывод - какая из потоко-безопасных коллекций эффективнее. И выразить в процентах - скорость самой быстрой поток-безопасной коллекции по сравнению с обычной очередью.
+
+**Указание**.
+1. Необходимо исключить из замеров время, необходимое для запуска и остановки потоков, то есть посчитать чистое время, необходимое для обработки объектов.
+Для этого следует использовать условные события, которые позволят убедиться, что оба потока запустились и готовы читать и писать объекты и только потом запускать таймер.
+2. Для итогового вывода сравнивать усредненные значения.
+
+#!markdown
+
+**1) Тесты для BlockingCollection**
+
+#!csharp
+
+global using System.Collections.Concurrent;
+global using System.Collections.Generic;
+global using System.Threading;
+global using System.Diagnostics;
+static (long,long) Test_BL()
+{
+    var blocking_collection =  new BlockingCollection<object>();
+    ManualResetEvent mre_start= new ManualResetEvent(false);
+    ManualResetEvent mre_complete= new ManualResetEvent(false);
+    long time_read=0;
+    long time_read_and_write;
+    int  count_object =1000000;
+    bool flag = true;
+    Stopwatch watch = new Stopwatch();
+    Thread th_write = new Thread(()=>
+    {
+        mre_start.WaitOne();//ждёт сигнал о начале работы
+        while(flag)
+        {
+            if(count_object>0)
+            {
+                blocking_collection.Add(new object());
+                Interlocked.Decrement(ref count_object);
+            }
+            if(count_object==0&&blocking_collection.Count==0)
+                flag = false;
+        }
+    });
+    Thread th_read = new Thread(()=>
+    {
+        mre_start.WaitOne();//ждёт сигнал о начале работы
+        var watch_read= Stopwatch.StartNew();
+        while(flag)   
+        {
+            if(blocking_collection.Count>=1)
+            {
+                blocking_collection.Take();
+            }
+        }
+        mre_complete.Set();//сигнал об окончании работы
+        watch_read.Stop();
+        time_read = watch_read.ElapsedMilliseconds;
+    });
+    th_read.Start();
+    th_write.Start();
+
+    mre_start.Set();
+    watch.Start();
+    mre_complete.WaitOne();//ждёт сигнал об окончании работы
+    watch.Stop();
+    th_read.Join();
+    th_read.Join();
+    time_read_and_write = watch.ElapsedMilliseconds;
+    return (time_read,time_read_and_write);
+}
+long[] test_bl_1 = new long[10];
+long[] test_bl_2 = new long[10];
+long avverage_bl = 0;
+for(int i =0; i<10;i++)
+{
+    var obj = Test_BL();
+    test_bl_1[i] = obj.Item1;
+    test_bl_2[i]=obj.Item2;
+    avverage_bl+=obj.Item2;
+}
+avverage_bl/=10;
+
+#!csharp
+
+#r "nuget:ScottPlot, 5.0.36"
+using Microsoft.DotNet.Interactive.Formatting;
+Formatter.Register(typeof(ScottPlot.Plot), (p, w) => 
+    w.Write(((ScottPlot.Plot)p).GetImageHtml(400, 300)), HtmlFormatter.MimeType);
+int[] numbers = Enumerable.Range(1,10).Select(x=>x).ToArray();
+ScottPlot.Plot test_graph_bl1 = new();
+ScottPlot.Plot test_graph_bl2 = new();
+test_graph_bl1.Add.Scatter(numbers, test_bl_1);
+test_graph_bl2.Add.Scatter(numbers, test_bl_2);
+Console.WriteLine("График 10 замеров времени, за которе поток обрабатывает миллион объектов");
+test_graph_bl1
+
+#!csharp
+
+Console.WriteLine("График 10 замеров времени, которое необходимо для записи и чтения миллиона объектов из очереди");
+test_graph_bl2
+
+#!markdown
+
+**Вывод для BlockingCollection**
+
+Исследуя графики, можно заметить, что время, необходимое для записи и чтения объектов из очереди при работе двух потоков, совпадает со временем, за которое один поток обрабатывает объекты (то есть считывает). Данное наблюдение можно объяснить **параллельностью** одновременного выполнения двух потоков.
+
+#!markdown
+
+**2) Тесты для ConcurrentQueue**
+
+#!csharp
+
+global using System.Collections.Concurrent;
+global using System.Collections.Generic;
+static (long,long) Test_CQ()
+{
+    var concurrent_collection = new ConcurrentQueue<object>();
+    ManualResetEvent mre_start= new ManualResetEvent(false);
+    ManualResetEvent mre_complete= new ManualResetEvent(false);
+    long time_read=0;
+    long time_read_and_write;
+    int  count_object =1000000;
+    bool flag = true;
+    object o = new object();
+    Thread th_write = new Thread(()=>
+    {
+        mre_start.WaitOne();
+        while(flag)
+        {
+            if(count_object>0)
+            {
+                concurrent_collection.Enqueue(new object());
+                Interlocked.Decrement(ref count_object);
+            }
+            if(count_object==0&&concurrent_collection.Count==0)
+                flag = false;
+           
+        }
+    });
+    Thread th_read = new Thread(()=>
+    {
+        mre_start.WaitOne();
+        var watch_read= Stopwatch.StartNew();
+        while(flag)   
+        {
+            if(concurrent_collection.Count>=1)
+            {
+                concurrent_collection.TryDequeue(out o);
+            }
+        }
+        watch_read.Stop();
+        mre_complete.Set();
+        time_read = watch_read.ElapsedMilliseconds;
+    });
+    th_read.Start();
+    th_write.Start();
+    mre_start.Set();
+    var watch = Stopwatch.StartNew();
+    mre_complete.WaitOne();
+    watch.Stop();
+    
+    time_read_and_write = watch.ElapsedMilliseconds;
+
+    th_read.Join();
+    th_write.Join();
+    return (time_read,time_read_and_write);
+}
+long[] test_cq_1 =new long[10];
+long[] test_cq_2 =new long[10];
+long avverage_cq =0;
+for(int i =0; i<10;i++)
+{ 
+    var obj = Test_CQ();
+    test_cq_1[i]=obj.Item1;
+    test_cq_2[i]=obj.Item2;
+    avverage_cq+=obj.Item2;
+}
+avverage_cq/=10;
+
+#!csharp
+
+ScottPlot.Plot test_graph_cq1 = new();
+ScottPlot.Plot test_graph_cq2 = new();
+test_graph_cq1.Add.Scatter(numbers, test_cq_1);
+test_graph_cq2.Add.Scatter(numbers, test_cq_2);
+Console.WriteLine("График 10 замеров времени, за которе поток обрабатывает миллион объектов");
+test_graph_cq1
+
+#!csharp
+
+Console.WriteLine("График 10 замеров времени, которое необходимо для записи и чтения миллиона объектов из очереди");
+test_graph_cq2
+
+#!markdown
+
+**Вывод для ConcurrentCollection**
+
+Аналогично выводу для BlockingCollection из пункта **"1"** время, необходимое для записи и чтения объектов из очереди при работе двух потоков, совпадает со временем, за которое один поток обрабатывает объекты.
+
+#!csharp
+
+static (long,long) Test_Q()
+{
+  long[] times_q = new long[10]; 
+    Queue<object> queue = new Queue<object>();
+    var sw = Stopwatch.StartNew();
+    for(int i =0; i<1000000;i++)
+    {
+        queue.Enqueue(new object());
+    }
+    var sw_2 = Stopwatch.StartNew();
+    for(int i =0;i<1000000;i++)
+    {
+        queue.Dequeue();
+    }
+    sw_2.Stop();
+    sw.Stop();
+ return (sw_2.ElapsedMilliseconds,sw.ElapsedMilliseconds);
+}
+long[] test_q_1 = new long[10];
+long[] test_q_2 =new long[10];
+long avverage_q = 0;
+for(int i =0;i<10;i++)
+{
+  var obj = Test_Q();
+    test_q_1[i]=obj.Item1;
+    test_q_2[i]=obj.Item2;
+    avverage_q+=obj.Item2;
+}
+avverage_q/=10;
+
+#!csharp
+
+ScottPlot.Plot test_graph_q1 = new();
+ScottPlot.Plot test_graph_q2 = new();
+test_graph_q1.Add.Scatter(numbers, test_q_1);
+test_graph_q2.Add.Scatter(numbers, test_q_2);
+Console.WriteLine("График 10 замеров времени, за которе поток обрабатывает миллион объектов");
+test_graph_q1
+
+#!csharp
+
+Console.WriteLine("График 10 замеров времени, которое необходимо для записи и чтения миллиона объектов из очереди");
+test_graph_q2
+
+#!markdown
+
+**Вывод для Queue**
+
+Исследуя графики, можно сделать вывод, что в обычной очереди среднее время, за которе цикл обрабатывает миллион объектов (считывает), меньше общего времени, необходимого для записи и чтения миллиона объектов из очереди. Это объясняется **последовательным** выполнением блоков кода программы. 
+
+#!csharp
+
+Console.WriteLine("Среднее время выполнения программы через: ");
+Console.WriteLine("ConcurrentCollection: "+avverage_cq+" мс");
+Console.WriteLine("BlockingCollection: "+avverage_bl+" мс");
+Console.WriteLine("Queue: "+avverage_q+" мс");
+
+#!markdown
+
+## Вывод
+
+**Сравнение производительности ConcurrentCollection и BlockingCollection**
+
+Исследовав графики, можно сказать, что потокобезопасная очередь ConcurrentCollection справляется с поставленной задачей быстрее, чем BlockingCollection, следовательно, эта очередь будет эффективнее.
+
+#!markdown
+
+**Сравнение с Queue**
+
+В приведённой задаче обычная непотокобезопасная очередь Queue справляется быстрее всех. 
+
+#!csharp
+
+var procent = 100-100*(float)avverage_q/(float) avverage_cq;
+Console.WriteLine("Разница в процентах между Queue и ConcurrentCollection: "+procent+" %");
