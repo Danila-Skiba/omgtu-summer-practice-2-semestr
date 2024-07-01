@@ -19,7 +19,7 @@
 3. [Одна из реализаций условных переменных на .Net](https://learn.microsoft.com/ru-ru/dotnet/api/system.threading.manualresetevent?view=net-8.0)
 
 ## Задание.
-Исслдеовать производительность BlockingCollection и ConcurrentQueue в сравнении с непотокоабезопасной очередью.
+Исслдееовать производительность BlockingCollection и ConcurrentQueue в сравнении с непотокоабезопасной очередью.
 
 Для каждой потоко-безопасной очереди необходимо реализовать 2 потока: один записывает объект в очередь, а другой - читает объект из очереди.
 Для непотокобезопасной очереди реализовать два цикла - записи миллиона объектов в очередь и чтение миллиона объектов из очереди.
@@ -59,7 +59,7 @@ static (long,long) Test_BL()
     Stopwatch watch = new Stopwatch();
     Thread th_write = new Thread(()=>
     {
-        mre_start.WaitOne();//ждёт сигнал о начале работы
+        mre_start.WaitOne();
         while(flag)
         {
             if(count_object>0)
@@ -73,7 +73,7 @@ static (long,long) Test_BL()
     });
     Thread th_read = new Thread(()=>
     {
-        mre_start.WaitOne();//ждёт сигнал о начале работы
+        mre_start.WaitOne();
         var watch_read= Stopwatch.StartNew();
         while(flag)   
         {
@@ -82,7 +82,7 @@ static (long,long) Test_BL()
                 blocking_collection.Take();
             }
         }
-        mre_complete.Set();//сигнал об окончании работы
+        mre_complete.Set();
         watch_read.Stop();
         time_read = watch_read.ElapsedMilliseconds;
     });
@@ -91,7 +91,7 @@ static (long,long) Test_BL()
 
     mre_start.Set();
     watch.Start();
-    mre_complete.WaitOne();//ждёт сигнал об окончании работы
+    mre_complete.WaitOne();
     watch.Stop();
     th_read.Join();
     th_read.Join();
@@ -293,7 +293,7 @@ Console.WriteLine("Queue: "+avverage_q+" мс");
 
 **Сравнение производительности ConcurrentCollection и BlockingCollection**
 
-Исследовав графики, можно сказать, что потокобезопасная очередь ConcurrentCollection справляется с поставленной задачей быстрее, чем BlockingCollection, следовательно, эта очередь будет эффективнее.
+Исследовав графики, можно сказать, что потокобезопасная очередь ConcurrentCollection справляется с поставленной задачей быстрее (средняя скорость **107 мс**), чем BlockingCollection (средняя скорость **279 мс**), следовательно, эта очередь будет эффективнее.
 
 #!markdown
 
@@ -301,7 +301,13 @@ Console.WriteLine("Queue: "+avverage_q+" мс");
 
 В приведённой задаче обычная непотокобезопасная очередь Queue справляется быстрее всех. 
 
+Средняя скорость: **23 мс**
+
 #!csharp
 
 var procent = 100-100*(float)avverage_q/(float) avverage_cq;
 Console.WriteLine("Разница в процентах между Queue и ConcurrentCollection: "+procent+" %");
+
+#!markdown
+
+Разница в процентах: **78,50467 %**
