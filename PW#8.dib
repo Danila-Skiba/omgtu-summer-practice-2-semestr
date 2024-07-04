@@ -37,7 +37,7 @@
 
 public interface IScheduler
 {
-    bool HasCommand();
+    bool HasCommand()
     ICommand Select();
     void Add(ICommand cmd);
 }
