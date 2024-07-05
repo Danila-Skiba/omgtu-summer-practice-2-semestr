@@ -20,7 +20,7 @@
 ## Задание.
 Реализовать приложение Ping-Pong.
 
-Создать дав потока, каждый из которых в цикле читает данные из BlockingCollection<Message>. После того, как поток прочитал объект из очереди, вызвал его метод Handle(), он создает новый объект класса Message и записывает его в очередь другого потока. Каждый поток всего должен обработать 100 сообщений.
+Создать два потока, каждый из которых в цикле читает данные из BlockingCollection<Message>. После того, как поток прочитал объект из очереди, вызвал его метод Handle(), он создает новый объект класса Message и записывает его в очередь другого потока. Каждый поток всего должен обработать 100 сообщений.
 
 **Указание**.
 1. Как запустить процесс обмена объектами Message между потоками? Первый объект Message пишем в очередь одного из потоков прямо из кода, коорый жти потоки стартовал.
@@ -55,12 +55,39 @@ class Message
 
 #!csharp
 
-using System.Collections.Concurrent;
-
+global using System.Collections.Concurrent;
+using System.Threading;
 var queue1 = new BlockingCollection<Message>(2); //очередь первого потока
 var queue2 = new BlockingCollection<Message>(2); //очередь второго потока
+Barrier bar = new Barrier(2);
+Thread thread_1= new Thread(()=>
+{
+    for(int i =0; i<100;i++)
+    {
+        Message mes = queue1.Take();
+        mes.Handle();
+        queue2.Add(new Message());
+    }
+    bar.SignalAndWait();
+    });
+Thread thread_2 = new Thread(()=>
+{
+    for(int i =0;i<100;i++)
+    {
+        Message mes = queue2.Take();
+        mes.Handle();
+        queue1.Add(new Message());
+    }
+    bar.SignalAndWait();
+});
+thread_1.Start();
+thread_2.Start();
 
-// Здесь писать решение
+Message first_mes = new Message();
+queue1.Add(first_mes);
+thread_1.Join();
+thread_2.Join();
+Message last_mes = queue1.Take();
 
 #!csharp
 
