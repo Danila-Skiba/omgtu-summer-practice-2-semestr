@@ -182,7 +182,7 @@ public class HardStop(ServerThread server) : ICommand
         server_1.AddComand(new HardStop(server_1));
     }
     Test();
-
+    
 #!markdown
 
 Необходимо проиллюстрировать выполнение 5 экземпляров TestCommand 3 раза, затем остановить поток с помощью HardStop.
