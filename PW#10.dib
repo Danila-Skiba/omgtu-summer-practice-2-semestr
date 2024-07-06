@@ -1,0 +1,306 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"languageName":"csharp","name":"csharp"}]}}
+
+#!markdown
+
+# Практическая работа №10. Доставка сообщений до Команды.
+
+**Цель:** Предоставить возможность обмена данными для длительных операций.
+
+**Результаты:** После выполнения работы Вы сможете:
+1. Отправлять сообщения длительной операции.
+
+## Задание.
+Поскольку длительная операция выполняется в течение некоторого момента времени, то может возникнуть необходимость
+в предоставлении дополнительной информации, влияющей на ход выполнения. Поскольку Команды и источник данных часто находятся в разных потоках,
+то сделать это надо потоко-безопасным образом. Самый простой способ - используя идиому Производитель-Поребитель, в нашем случае - очередь.
+
+Набор данных, предназначенных для Команды будем называть сообщением. Можно использовать любую подходящую конструкцию языка программирования для 
+представления сообщения. Необходимо учесть, что скорость доставки сообщений может быть выше, чем скорость обработки, а значит очередь сообщений должна быть
+у каждой Длительной операции. При этом потоко-безопасные очереди требуют системных ресурсов, а значит, чтобы не получить ограничение на максимальное количество
+одновремнно работающих длительных Команд, нельзя использовать потоко-безопасные очереди. 
+
+Возможный вариант реализации - оставить одну потоко-безопасную очередь для потока, а для Команд использовать обычные очереди. Осталось только решить, как сообщение
+излеченное из очереди потока попадет в очередь Команды. Один из возможных вариантов:
+1. Каждая команда имеет уникальный идентификатор.
+2. Сообщение содержит уникальный идентификатор Команлды, которому оно адресовано.
+3. Для потока создаем специальную Длительную Команду, которая назвается Роутером. Он хранит коллекцию пар (id Команды, ссылка на очередь Команды). При вызове метода Execute этой 
+Роутера, если очередь потока не пуста, происходит чтение очередного сообщения и по id Команды определяется очередь, куда это сообщение записывается.
+Если id Команды не определен, на консоль выводится сообщение о невозможности доставить сообщение неизвестному адресату.
+При старте новой Команды, ее очередь необходимо добавить в коллекцию Роутера. При остановке Команды - очередь удаляется из коллекции Роутера.
+
+Продемонстрировать работу Роутера на двух Длительных Командах и на отправке сообщения несуществующей Команде.
+
+**Материалы для самостоятельного изучения**.
+1. [Паттерн Сообщение](https://www.enterpriseintegrationpatterns.com/patterns/messaging/Message.html)
+2. [Паттерн Роутер - весь раздел про Роутеры](https://www.enterpriseintegrationpatterns.com/patterns/messaging/MessageRoutingIntro.html)
+3. [Обмен сообщеними](https://www.enterpriseintegrationpatterns.com/patterns/messaging/MessageConstructionIntro.html)
+
+#!csharp
+
+global using System;
+global using System.Collections.Concurrent;
+global using System.Threading;
+using System.ComponentModel.Design;
+using System.Diagnostics;
+
+public interface ICommand
+{
+    int ID { get; }
+    void Execute(Queue<Message> q);
+}
+public class Message
+{
+    public int commandID;
+    public string changes;
+    public Message(int commandID, string changes)
+    {
+        this.commandID = commandID;
+        this.changes = changes;
+    }
+}
+public interface IScheduler
+{
+    bool HasCommand();
+    ICommand Select();
+    void Add(ICommand cmd);
+}
+public class ExceptionHandler
+{
+    public static void FindException(ICommand command, Exception exception)
+    {
+        Console.WriteLine($"Найдено исключение в команде: {command}, Ошибка: {exception.Message}");
+    }
+}
+public class Round_Robin : IScheduler
+{
+    private ConcurrentQueue<ICommand> command_queue = new ConcurrentQueue<ICommand>();
+    public bool HasCommand()
+    {
+        return command_queue.Count > 0;
+    }
+    public ICommand Select()
+    {
+        if (command_queue.TryDequeue(out ICommand command))
+        {
+            return command;
+        }
+        return null;
+    }
+    public void Add(ICommand command)
+    {
+        command_queue.Enqueue(command);
+    }
+}
+public class ServerThread
+{
+    private Thread thread;
+    private bool thread_complete_hard = false;
+    private bool thread_complete_soft = false;
+    private IScheduler Scheduler;
+    private AutoResetEvent next_command;
+    private ConcurrentQueue<ICommand> commands;
+    public static   CommandRouter Commandrouter;
+    public ServerThread(IScheduler scheduler,CommandRouter commandrouter)
+    {
+        Scheduler = scheduler;
+        Commandrouter = commandrouter;
+        next_command = new AutoResetEvent(false);
+        commands= new ConcurrentQueue<ICommand>();
+        thread = new Thread(Run);
+        thread.Start();
+    }
+    private void Run()
+    {
+        while (true)
+        {
+            ICommand command = null;
+            if (Scheduler.HasCommand())
+            {
+                command = Scheduler.Select();
+            }
+            else if (commands.Count > 0)
+            {
+                commands.TryDequeue(out command);
+            }
+            if (command != null)
+            {
+                Commandrouter.CommandQueueAdd(command.ID);
+                try
+                {
+                    command.Execute(Commandrouter.commandQueues[command.ID]);
+                    Commandrouter.Delete_Queue(command.ID);
+                    if (thread_complete_hard)
+                    { break; }
+                }
+                catch (Exception exception)
+                {
+                    ExceptionHandler.FindException(command, exception);
+                }
+            }
+            else if (command == null && !thread_complete_soft)
+            {
+                next_command.WaitOne();
+            }
+            else if (command == null && thread_complete_soft)
+            {
+                break;
+            }
+        }
+    }
+    public void AddComand(ICommand command)
+    {
+        Scheduler.Add(command);
+        next_command.Set();
+    }
+    public void Hard()
+    {
+        if (Thread.CurrentThread == thread)
+        {
+            thread_complete_hard = true;
+            next_command.Set();
+        }
+        else
+        {
+            throw new Exception("Команда не выполняется в текущем потоке");
+        }
+
+    }
+}
+public class CommandRouter : ICommand
+{
+    public int ID => 345;
+    public static  object locker = new object();
+    public Dictionary<int, Queue<Message>> commandQueues = new Dictionary<int, Queue<Message>>();
+    public ConcurrentQueue<Message> Queue_message = new ConcurrentQueue<Message>();
+
+    public void Execute(Queue<Message> q)
+    {
+        if (Queue_message.TryDequeue(out Message message))
+        {
+            lock (locker)
+            {
+                AddMessage(message);
+                // здесь используем Monitor для оповещения о добавлении сообщения
+                Monitor.PulseAll(locker);
+            }
+        }
+    }
+
+    public void CommandQueueAdd(int ID)
+    {
+        lock (locker)
+        {
+            if (!commandQueues.ContainsKey(ID))
+            {
+                commandQueues[ID] = new Queue<Message>();
+                // оповещение о создании новой очереди
+                Monitor.PulseAll(locker);
+            }
+        }
+    }
+
+    public void Delete_Queue(int ID)
+    {
+        lock (locker)
+        {
+            commandQueues.Remove(ID);
+        }
+    }
+
+    public void AddMessage(Message message)
+    {
+        lock (locker)
+        {
+            if (!commandQueues.ContainsKey(message.commandID))
+            {
+                // Ожидаем, пока не будет создана очередь для данной команды
+                Monitor.Wait(locker);
+            }
+            try
+            {
+                commandQueues[message.commandID].Enqueue(message);
+            } 
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Невозможно доставить сообщение неизвестному адресату с ID: {message.commandID}");
+            }
+        }
+    }
+}
+public class TestCommandLong_1 : ICommand
+{
+    public int ID => 523;
+    public void Execute(Queue<Message> q)
+    {
+        lock (CommandRouter.locker)
+        {
+            // Ожидаем, пока не появятся сообщения в очереди
+            if(q.Count==0)
+                Monitor.Wait(CommandRouter.locker);
+
+            Console.WriteLine($"Выполнение команды с id {ID}:");
+            Message message;
+            while (q.TryDequeue(out message))
+            {
+                Console.WriteLine(message.changes);
+            }
+        }
+    }
+}
+public class TestCommandLong_2 : ICommand
+{
+    public int ID => 790;
+    public void Execute(Queue<Message> q)
+    {
+        lock (CommandRouter.locker)
+        {
+            if (q.Count == 0)
+            {
+                Monitor.Wait(CommandRouter.locker);
+            }
+            Console.WriteLine($"Выполнение команды с id {ID}: ");
+            Message message;
+            while (q.TryDequeue(out message))
+            {
+                Console.WriteLine(message.changes);
+            }
+        }
+    }
+}
+public class HardStop : ICommand
+{
+    public int ID => 555;
+    ServerThread server_thread;
+    public HardStop(ServerThread server)
+    {
+        this.server_thread = server;
+    }
+    public void Execute(Queue<Message> q)
+    {
+        server_thread.Hard();
+    }
+}
+
+#!csharp
+
+IScheduler scheduler_1 = new Round_Robin();
+        IScheduler scheduler_2 = new Round_Robin();
+        CommandRouter router = new CommandRouter();
+        //запускаем два потока 
+        ServerThread server_1 = new ServerThread(scheduler_1, router); //поток для выполнения длительных команд 
+        ServerThread server_2 = new ServerThread(scheduler_2, router); // поток для выполнения команды CommandRouter 
+
+        router.Queue_message.Enqueue(new Message(523, "Сообщение команде 1 от Роутера"));
+        router.Queue_message.Enqueue(new Message(790, "Сообщение команде 2 от Роутера"));
+        router.Queue_message.Enqueue(new Message(888, "Сообщение команде 3 от Роутера"));
+        scheduler_1.Add(new TestCommandLong_1());
+        scheduler_1.Add(new TestCommandLong_2());
+
+        scheduler_2.Add(router);
+        scheduler_2.Add(router);
+        scheduler_2.Add(router);
+
+        server_1.AddComand(new HardStop(server_1));
+        server_2.AddComand(new HardStop(server_2));
