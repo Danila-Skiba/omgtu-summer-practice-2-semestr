@@ -224,13 +224,16 @@ public class CommandRouter : ICommand
             } 
             catch (Exception ex)
             {
-                Console.WriteLine($"Невозможно доставить сообщение неизвестному адресату с ID: {message.commandID}");
+                Console.WriteLine($"\n Невозможно доставить сообщение неизвестному адресату с ID: {message.commandID}");
             }
         }
     }
 }
-public class TestCommandLong_1 : ICommand
+public class TestCommandLong_1(int id_thread,int maxExecute): ICommand
 {
+    int id_thread = id_thread;
+    int maxExecute = maxExecute;
+    int counter =0;
     public int ID => 523;
     public void Execute(Queue<Message> q)
     {
@@ -240,17 +243,23 @@ public class TestCommandLong_1 : ICommand
             if(q.Count==0)
                 Monitor.Wait(CommandRouter.locker);
 
+            Console.WriteLine($"\n Поток {id_thread} вызов {++counter}");
             Console.WriteLine($"Выполнение команды с id {ID}:");
             Message message;
             while (q.TryDequeue(out message))
             {
                 Console.WriteLine(message.changes);
             }
+            if (counter < maxExecute)
+                scheduler_1.Add(this);
         }
     }
 }
-public class TestCommandLong_2 : ICommand
+public class TestCommandLong_2(int id_thread,int maxExecute): ICommand
 {
+    int id_thread = id_thread;
+    int  maxExecute =  maxExecute;
+    int counter =0;
     public int ID => 790;
     public void Execute(Queue<Message> q)
     {
@@ -260,6 +269,7 @@ public class TestCommandLong_2 : ICommand
             {
                 Monitor.Wait(CommandRouter.locker);
             }
+            Console.WriteLine($"\n Поток {id_thread} вызов {++counter}");
             Console.WriteLine($"Выполнение команды с id {ID}: ");
             Message message;
             while (q.TryDequeue(out message))
@@ -282,25 +292,30 @@ public class HardStop : ICommand
         server_thread.Hard();
     }
 }
+public static IScheduler scheduler_1 = new Round_Robin();
+        public static IScheduler scheduler_2 = new Round_Robin();
 
 #!csharp
 
-IScheduler scheduler_1 = new Round_Robin();
-        IScheduler scheduler_2 = new Round_Robin();
+        
         CommandRouter router = new CommandRouter();
         //запускаем два потока 
         ServerThread server_1 = new ServerThread(scheduler_1, router); //поток для выполнения длительных команд 
         ServerThread server_2 = new ServerThread(scheduler_2, router); // поток для выполнения команды CommandRouter 
 
-        router.Queue_message.Enqueue(new Message(523, "Сообщение команде 1 от Роутера"));
-        router.Queue_message.Enqueue(new Message(790, "Сообщение команде 2 от Роутера"));
-        router.Queue_message.Enqueue(new Message(888, "Сообщение команде 3 от Роутера"));
-        scheduler_1.Add(new TestCommandLong_1());
-        scheduler_1.Add(new TestCommandLong_2());
+        router.Queue_message.Enqueue(new Message(523, "1-ое сообщение команде с id 523 от Роутера"));
+        router.Queue_message.Enqueue(new Message(790, "Сообщение команде с id 790 от Роутера"));
+        router.Queue_message.Enqueue(new Message(888, "Сообщение команде с id 888 от Роутера"));
+        router.Queue_message.Enqueue(new Message(523, "2-ое сообщение команде с id 523 от Роутера"));
+
+        scheduler_1.Add(new TestCommandLong_1(Thread.CurrentThread.ManagedThreadId,2)); //длительная операция с вызовом Execute 2 раза
+        scheduler_1.Add(new TestCommandLong_2(Thread.CurrentThread.ManagedThreadId,1));
 
         scheduler_2.Add(router);
         scheduler_2.Add(router);
         scheduler_2.Add(router);
+        scheduler_2.Add(router);
 
+        Thread.Sleep(2000);
         server_1.AddComand(new HardStop(server_1));
         server_2.AddComand(new HardStop(server_2));
