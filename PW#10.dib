@@ -276,6 +276,8 @@ public class TestCommandLong_2(int id_thread,int maxExecute): ICommand
             {
                 Console.WriteLine(message.changes);
             }
+             if (counter < maxExecute)
+                scheduler_1.Add(this);
         }
     }
 }
